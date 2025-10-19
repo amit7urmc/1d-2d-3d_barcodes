@@ -1,8 +1,14 @@
+"""
+This module implements various 1D barcode encoders and decoders.
+"""
 import turtle
 import re
 
 
-class PoorMans1DBarCodeEncoderDecoder:
+class PoorMans1DBarCodeEncoderDecoder_UPC_A:
+    """
+    This class implements the UPC-A class of 1D barcode encoding and decoding via image.
+    """
 
     def __init__(self,
                  width=3,  # Keep it an odd number
@@ -28,7 +34,10 @@ class PoorMans1DBarCodeEncoderDecoder:
         self.eps_pattern_of_interest = re.compile(
             r"^(?P<X>\d+)\s(?P<Y>\d+)\slineto$")
 
-    def encode(self, number_to_encode):
+    def encode(self, number_to_encode: str):
+        """
+        Given a number in a string form, this method creates an eps image having the bar codes.
+        """
         # Encode the 101 ..left boundary
         self.turtle_pen.width(self.width)
         pos = 0
@@ -99,6 +108,9 @@ class PoorMans1DBarCodeEncoderDecoder:
         self.screen.exitonclick()
 
     def extract_binary(self, eps_image_to_read, verbose=False):
+        """
+        This image extracts a binary string from the saved eps image.
+        """
         bar_code = ""
         width = None
         height = None
@@ -143,6 +155,9 @@ class PoorMans1DBarCodeEncoderDecoder:
         return bar_code
 
     def decode(self, eps_image_to_read, verbose):
+        """
+        This method decodes the eps image into the number
+        """
         binary_bar_code = self.extract_binary(
             eps_image_to_read=eps_image_to_read, verbose=verbose)
         left_numbers = binary_bar_code[3:3+(6*7)]
@@ -160,6 +175,15 @@ class PoorMans1DBarCodeEncoderDecoder:
         for right_slice_index in range(0, 42, 7):
             right_slice = right_numbers[right_slice_index:right_slice_index+7]
             decoded_number += revsered_right_parities[right_slice]
+        # Assert the checksum
+        odd_sum = sum(map(lambda x: int(x)*3, decoded_number[::2]))
+        even_sum = sum(map(lambda x: int(x), decoded_number[1:-1:2]))
+        total_sum = odd_sum + even_sum
+        mod_10 = total_sum % 10
+        inverse_mod_10 = (10 - mod_10) % 10
+        encoded_checksum = inverse_mod_10
+        assert str(encoded_checksum) == decoded_number[
+            -1], f"The checksum failed. {(encoded_checksum)} != {decoded_number[-1]}  The image is corrupted/invalid."
         if verbose:
             print(f"The decoded number from the .eps file is {decoded_number}")
         return decoded_number
@@ -167,6 +191,6 @@ class PoorMans1DBarCodeEncoderDecoder:
 
 if __name__ == "__main__":
 
-    my_1_d_bar_obj = PoorMans1DBarCodeEncoderDecoder()
+    my_1_d_bar_obj = PoorMans1DBarCodeEncoderDecoder_UPC_A()
     my_1_d_bar_obj.encode("036000291452")
     my_1_d_bar_obj.decode("Barcode_036000291452.eps", True)
