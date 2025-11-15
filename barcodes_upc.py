@@ -20,6 +20,10 @@ class PoorMans1DBarCodeEncoderDecoder_UPC_A:
     def __init__(self,
                  width=3,
                  height=150,
+                 upper_quiet_zone=10,
+                 lower_quiet_zone=10,
+                 left_quiet_zone_width=5,
+                 right_quiet_zone_width=3,
                  left_odd_parities={
                      '0': '0001101', '1': '0011001', '2': '0010011', '3': '0111101', '4': '0100011',
                      '5': '0110001', '6': '0101111', '7': '0111011', '8': '0110111', '9': '0001011'},
@@ -28,6 +32,10 @@ class PoorMans1DBarCodeEncoderDecoder_UPC_A:
                      '5': '1001110', '6': '1010000', '7': '1000100', '8': '1001000', '9': '1110100'}):
         self.width = width
         self.height = height
+        self.upper_quiet_zone = upper_quiet_zone
+        self.lower_quiet_zone = lower_quiet_zone
+        self.left_quiet_zone_width = left_quiet_zone_width
+        self.right_quiet_zone_width = right_quiet_zone_width
         self.left_odd_parities = left_odd_parities
         self.right_even_parities = right_even_parities
 
@@ -115,14 +123,14 @@ class PoorMans1DBarCodeEncoderDecoder_UPC_A:
         """
         Given a number in a string form, this method creates an eps image having the bar codes.
         """
-        quiet_zone_left = 5*self.width  # Left quiet zone
+        quiet_zone_left = self.left_quiet_zone_width*self.width  # Left quiet zone
         left_guard_width = 3*self.width  # Left guard is 101
         left_numbers_width = 7*6*self.width  # Left 6 numbers
         center_separator_width = 5*self.width  # Center separator is 01010
         right_numbers_width = 7*5*self.width  # Right 5 numbers
         right_guard_width = 3*self.width  # Right guard is 101
         check_sum_width = 7*1*self.width
-        quiet_zone_right = 3*self.width  # Right quiet zone
+        quiet_zone_right = self.right_quiet_zone_width*self.width  # Right quiet zone
         options_dict = {
             "barcode_width": quiet_zone_left +
             left_guard_width +
@@ -134,7 +142,9 @@ class PoorMans1DBarCodeEncoderDecoder_UPC_A:
             quiet_zone_right
         }
         data = []
-        for _ in range(self.height):
+        for i in range(self.upper_quiet_zone):
+            data.append([255]*options_dict["barcode_width"])
+        for _ in range(self.height-self.upper_quiet_zone-self.lower_quiet_zone):
             row = []
             # Write left quiet zone
             for _ in range(5):
@@ -179,6 +189,9 @@ class PoorMans1DBarCodeEncoderDecoder_UPC_A:
             # # invert since 0 means black and 1 means white
             row = [255 if x == 0 else 0 for x in row]
             data.append(row)
+            # Append row
+        for i in range(self.lower_quiet_zone):
+            data.append([255]*options_dict["barcode_width"])
         # Create png file
         bytes_returned = self.create_png_file(data, **options_dict)
         with open(f"Barcode_{number_to_encode}.png", "wb") as filehandle:
