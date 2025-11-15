@@ -48,10 +48,10 @@ class PoorMans1DBarCodeEncoderDecoder_UPC_A:
                     **kwargs) -> bytes:
         # Create the png header
         # First pack the Length
-        block = struct.pack(
+        head = struct.pack(
             "!BBBB", *tuple(map(lambda x: int.from_bytes(x, "big"), (b"\x00", b"\x00", b"\x00", b"\x0D")),))
         # Pack the type
-        block += struct.pack(
+        block = struct.pack(
             "!BBBB", *PoorMans1DBarCodeEncoderDecoder_UPC_A.PNG_IHDR)
         # Now pack the Data
         # Width calculations
@@ -73,18 +73,18 @@ class PoorMans1DBarCodeEncoderDecoder_UPC_A:
         block += struct.pack(
             "!B", interlace_method)
         crc_block = struct.pack("!I", zlib.crc32(block))
-        return block + crc_block
+        return head + block + crc_block
 
     def create_iend(self) -> bytes:
         # Create IEND
         # First pack the Length
-        block = struct.pack(
+        head = struct.pack(
             "!BBBB", *tuple(map(lambda x: int.from_bytes(x, "big"), (b"\x00", b"\x00", b"\x00", b"\x00")),))
         # Pack the type
-        block += struct.pack(
+        block = struct.pack(
             "!BBBB", *PoorMans1DBarCodeEncoderDecoder_UPC_A.PNG_IEND)
         crc_block = struct.pack("!I", zlib.crc32(block))
-        return block + crc_block
+        return head + block + crc_block
 
     def create_idat(self, data: list[list[bytes]]) -> bytes:
         # Create IDAT chunk
