@@ -18,7 +18,7 @@ class PoorMans1DBarCodeEncoderDecoder_UPC_A:
         x, "big"), (b"\x49", b"\x44", b"\x41", b"\x54")),)  # corresponds to b"IDAT"
 
     def __init__(self,
-                 width=1,  # Keep it an odd number
+                 width=3,
                  height=150,
                  left_odd_parities={
                      '0': '0001101', '1': '0011001', '2': '0010011', '3': '0111101', '4': '0100011',
@@ -31,8 +31,13 @@ class PoorMans1DBarCodeEncoderDecoder_UPC_A:
         self.left_odd_parities = left_odd_parities
         self.right_even_parities = right_even_parities
 
-    def create_ihdr(self, color_type: int = 0, bit_depth: int = 8, compression: int = 0,
-                    filter_method: int = 0, interlace_method: int = 0, **kwargs) -> bytes:
+    def create_ihdr(self,
+                    color_type: int = 0,
+                    bit_depth: int = 8,
+                    compression: int = 0,
+                    filter_method: int = 0,
+                    interlace_method: int = 0,
+                    **kwargs) -> bytes:
         # Create the png header
         # First pack the Length
         block = struct.pack(
@@ -80,9 +85,9 @@ class PoorMans1DBarCodeEncoderDecoder_UPC_A:
         # Go through data
         raw = b""
         for row in data:
-            raw += b"\0"
+            raw += b"\0"  # See https://stackoverflow.com/questions/8554282/creating-a-png-file-in-python
             for column in row:
-                # Ensure d is at max 255
+                # Ensure column is at max 255
                 value = struct.pack("!B", column)
                 raw += value
         # compress
@@ -117,15 +122,22 @@ class PoorMans1DBarCodeEncoderDecoder_UPC_A:
         right_numbers_width = 7*5*self.width  # Right 5 numbers
         right_guard_width = 3*self.width  # Right guard is 101
         check_sum_width = 7*1*self.width
-        quiet_zone_right = 5*self.width  # Right quiet zone
+        quiet_zone_right = 3*self.width  # Right quiet zone
         options_dict = {
-            "barcode_width": quiet_zone_left + left_guard_width + left_numbers_width + center_separator_width + right_numbers_width + right_guard_width + check_sum_width + quiet_zone_right
+            "barcode_width": quiet_zone_left +
+            left_guard_width +
+            left_numbers_width +
+            center_separator_width +
+            right_numbers_width +
+            right_guard_width +
+            check_sum_width +
+            quiet_zone_right
         }
         data = []
         for _ in range(self.height):
             row = []
             # Write left quiet zone
-            for _ in range(quiet_zone_left):
+            for _ in range(5):
                 for _ in range(self.width):
                     row.append(0)
             # Write left guard 101
@@ -142,7 +154,7 @@ class PoorMans1DBarCodeEncoderDecoder_UPC_A:
                 for _ in range(self.width):
                     row.append(int(digit))
             # Write right 5 digits
-            for digit in number_to_encode[6:-1:]:
+            for digit in number_to_encode[6:11:]:
                 for number in self.right_even_parities[digit]:
                     for _ in range(self.width):
                         row.append(int(number))
@@ -161,14 +173,12 @@ class PoorMans1DBarCodeEncoderDecoder_UPC_A:
                 for _ in range(self.width):
                     row.append(int(digit))
             # Write right quiet zone
-            for _ in range(quiet_zone_right):
+            for _ in range(3):
                 for _ in range(self.width):
                     row.append(0)
             # # invert since 0 means black and 1 means white
             row = [255 if x == 0 else 0 for x in row]
             data.append(row)
-        # Transpose
-        # data = list(zip(*data))
         # Create png file
         bytes_returned = self.create_png_file(data, **options_dict)
         with open(f"Barcode_{number_to_encode}.png", "wb") as filehandle:

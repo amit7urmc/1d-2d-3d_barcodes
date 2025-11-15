@@ -7,7 +7,7 @@ import re
 
 class PoorMans1DBarCodeEncoderDecoder_UPC_A:
     """
-    This class implements the UPC-A class of 1D barcode encoding and decoding via image.
+    This class implements the UPC-A class of 1D barcode encoding and decoding via eps image.
     """
 
     def __init__(self,
@@ -187,6 +187,13 @@ class PoorMans1DBarCodeEncoderDecoder_UPC_A:
         if verbose:
             print(f"The decoded number from the .eps file is {decoded_number}")
         return decoded_number
+
+
+class PoorMans1DBarCodeEncoderDecoder_EAN_13(PoorMans1DBarCodeEncoderDecoder_UPC_A):
+    """
+    This class implements EAN-13 standard 1D bar codes.
+    """
+    pass
 
 
 if __name__ == "__main__":
