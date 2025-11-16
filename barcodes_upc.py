@@ -3,6 +3,7 @@ This module encodes and decodes barcodes as per UPC-A standards
 """
 import zlib
 import struct
+import hashlib
 
 
 class PoorMans1DBarCodeEncoderDecoder_UPC_A:
@@ -147,7 +148,7 @@ class PoorMans1DBarCodeEncoderDecoder_UPC_A:
         for _ in range(self.height-self.upper_quiet_zone-self.lower_quiet_zone):
             row = []
             # Write left quiet zone
-            for _ in range(5):
+            for _ in range(self.left_quiet_zone_width):
                 for _ in range(self.width):
                     row.append(0)
             # Write left guard 101
@@ -183,7 +184,7 @@ class PoorMans1DBarCodeEncoderDecoder_UPC_A:
                 for _ in range(self.width):
                     row.append(int(digit))
             # Write right quiet zone
-            for _ in range(3):
+            for _ in range(self.right_quiet_zone_width):
                 for _ in range(self.width):
                     row.append(0)
             # # invert since 0 means black and 1 means white
@@ -197,8 +198,182 @@ class PoorMans1DBarCodeEncoderDecoder_UPC_A:
         with open(f"Barcode_{number_to_encode}.png", "wb") as filehandle:
             filehandle.write(bytes_returned)
 
+    def decode(self, png_image_to_read: bytes, verbose: bool = False) -> str:
+        """
+        This method decodes the png image into the number.
+        The URL https://pyokagan.name/blog/2019-10-14-png/ has been used as a starting reference
+        """
+        # Read the signature first
+        with open(png_image_to_read, "rb") as filehandle:
+            current_line = filehandle.read(
+                len(PoorMans1DBarCodeEncoderDecoder_UPC_A.PNG_SIGNATURE))
+            if current_line != PoorMans1DBarCodeEncoderDecoder_UPC_A.PNG_SIGNATURE:
+                if verbose:
+                    print("This is not a png file!")
+                raise TypeError("This is not a png file!")
+            if verbose:
+                print("This is a png file!")
+
+            # Now get the IHDR block
+            ihdr_length = struct.unpack("!4B", filehandle.read(4))[0]
+            type_ = struct.unpack("!4B", filehandle.read(4))
+            if type_ != PoorMans1DBarCodeEncoderDecoder_UPC_A.PNG_IHDR:
+                if verbose:
+                    print("This is not an IHDR block!")
+                raise TypeError("This is not an IHDR block!")
+            if verbose:
+                print("This is an IHDR block!")
+            data = struct.unpack("!IIBBBBB", filehandle.read(13))
+            width, height, bit_depth, color_type, compression, filter_method, interlace_method = data
+            if verbose:
+                print(
+                    f"{width=}, {height=}, {bit_depth=}, {color_type=}, {compression=}, {filter_method=}, {interlace_method=}")
+
+            # Check CRC for this block
+            saved_checksum = struct.unpack("!I", filehandle.read(4))[0]
+            computed_checksum = zlib.crc32(
+                struct.pack("!BBBBIIBBBBB", *type_, *data))
+            if saved_checksum != computed_checksum:
+                if verbose:
+                    print(
+                        f"IHDR Checksum failed! Saved was {saved_checksum} and computed was {computed_checksum}")
+                raise TypeError("Checksum failed!")
+            if verbose:
+                print("IHDR Checksum passed!")
+
+            # Now get the IDAT block
+            idat_length = struct.unpack("!I", filehandle.read(4))[0]
+            type_ = struct.unpack("!4B", filehandle.read(4))
+            if type_ != PoorMans1DBarCodeEncoderDecoder_UPC_A.PNG_IDAT:
+                if verbose:
+                    print("This is not an IDAT block!")
+                raise TypeError("This is not an IDAT block!")
+            if verbose:
+                print("This is an IDAT block!")
+
+            # The CRC is calculated on the chunk type and the chunk data
+            chunk_type_and_data = struct.pack(
+                "!4B", *type_) + filehandle.read(idat_length)
+            decompressed_data = zlib.decompress(chunk_type_and_data[4:])
+
+            saved_checksum = struct.unpack("!I", filehandle.read(4))[0]
+            computed_checksum = zlib.crc32(chunk_type_and_data)
+
+            if saved_checksum != computed_checksum:
+                if verbose:
+                    print(
+                        f"IDAT checksum failed! Saved was {saved_checksum} and computed was {computed_checksum}")
+                raise TypeError("Checksum failed!")
+            if verbose:
+                print("IDAT Checksum passed!")
+
+            data_block_ = [decompressed_data[i+1:i+width+1]
+                           for i in range(0, len(decompressed_data), width+1)]
+
+            # Quick check all rows are same/redundant so that we can just focus on 1st scanline apart from the upper and lower quiet zone
+            m = hashlib.sha1()
+            m.update(data_block_[self.upper_quiet_zone:-
+                     self.lower_quiet_zone][0])
+            first_row_checksum = m.hexdigest()
+            for row_index, row in enumerate(data_block_[self.upper_quiet_zone:-self.lower_quiet_zone]):
+                m1 = hashlib.sha1()
+                m1.update(row)
+                if m1.hexdigest() != first_row_checksum:
+                    raise ValueError(
+                        f"Something strange. We were expecting all rows to be same but at least index {row_index} is different!")
+            data_block = []
+            for row in data_block_:
+                data_block.append([int(x) for x in row])
+            # Remove the upper quiet zone
+            data_block = data_block[self.upper_quiet_zone:-
+                                    self.lower_quiet_zone]
+
+            relevant_data = data_block[0]
+            # Get left quiet zone
+            left_quiet_zone = relevant_data[:
+                                            self.left_quiet_zone_width*self.width]
+            if any(map(lambda x: x != 255, left_quiet_zone)):
+                raise ValueError("Identification of left quiet zone failed")
+            relevant_data = relevant_data[self.left_quiet_zone_width*self.width:]
+            # Get left guard
+            left_guard = relevant_data[:3*self.width]
+            if left_guard != [0]*self.width + [255]*self.width + [0]*self.width:
+                raise ValueError("Identification of left guard failed")
+            relevant_data = relevant_data[3*self.width:]
+            # Get left 6 digits
+            left_numbers = relevant_data[:6*7*self.width]
+            numbers_read = []
+            reverse_left_odd_parities = {v: k for k,
+                                         v in self.left_odd_parities.items()}
+            for i in range(6):
+                read_key = ""
+                for j in range(7):
+                    chunk = left_numbers[:self.width]
+                    if chunk == [0]*self.width:
+                        read_key += "1"
+                    else:
+                        read_key += "0"
+                    left_numbers = left_numbers[self.width:]
+                numbers_read.append(reverse_left_odd_parities.get(read_key))
+            relevant_data = relevant_data[6*7*self.width:]
+            # Get middle separator
+            middle_separator = relevant_data[:5*self.width]
+            if middle_separator != [255]*self.width + [0]*self.width + [255]*self.width + [0]*self.width + [255]*self.width:
+                raise ValueError("Identification of middle separator failed")
+            relevant_data = relevant_data[5*self.width:]
+
+            # Get right 5 digits
+            right_numbers = relevant_data[:5*7*self.width]
+            reverse_right_even_parities = {v: k for k,
+                                           v in self.right_even_parities.items()}
+            for i in range(5):
+                read_key = ""
+                for j in range(7):
+                    chunk = right_numbers[:self.width]
+                    if chunk == [0]*self.width:
+                        read_key += "1"
+                    else:
+                        read_key += "0"
+                    right_numbers = right_numbers[self.width:]
+                numbers_read.append(reverse_right_even_parities.get(read_key))
+            relevant_data = relevant_data[5*7*self.width:]
+            # Get the checksum
+            checksum_digits = relevant_data[:7*self.width]
+            checksum_digits = [
+                1 if x == 0 else 0 for x in checksum_digits[::self.width]]
+            numbers_read_ = []
+            stored_checksum = reverse_right_even_parities.get(
+                "".join(list(map(str, checksum_digits))))
+            numbers_read_ = list(map(int, numbers_read))
+            odd_sum = sum(map(lambda x: int(x)*3, numbers_read_[::2]))
+            even_sum = sum(map(lambda x: int(x), numbers_read_[1:-1:2]))
+            total_sum = odd_sum + even_sum
+            mod_10 = total_sum % 10
+            computed_checksum = (10 - mod_10) % 10
+            if stored_checksum != str(computed_checksum):
+                raise ValueError(
+                    f"Identification of checksum failed. Stored={stored_checksum} Computed={computed_checksum}")
+            relevant_data = relevant_data[7*self.width:]
+            # Get right guard
+            right_guard = relevant_data[:3*self.width]
+            if right_guard != [0]*self.width + [255]*self.width + [0]*self.width:
+                raise ValueError("Identification of right guard failed")
+            relevant_data = relevant_data[3*self.width:]
+            # Get the right quiet zone
+            right_quiet_zone = relevant_data
+            if right_quiet_zone != [255]*self.right_quiet_zone_width*self.width:
+                raise ValueError("Identification of right quiet zone failed")
+            if verbose:
+                print(
+                    f"Decoding complete. The barcode is {''.join(numbers_read)}")
+
+            return "".join(numbers_read)
+
 
 if __name__ == "__main__":
 
     my_1_d_bar_obj = PoorMans1DBarCodeEncoderDecoder_UPC_A()
     my_1_d_bar_obj.encode("036000291452")
+    # Verify the generated image by uploading in an online tool like below
+    # https://orcascan.com/tools/gs1-barcode-decoder?barcode=0036000291452
+    my_1_d_bar_obj.decode("Barcode_036000291452.png", True)
