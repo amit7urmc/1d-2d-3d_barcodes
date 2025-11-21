@@ -1,23 +1,19 @@
 """
-This module encodes and decodes barcodes as per UPC-A standards
-https://en.wikipedia.org/wiki/Universal_Product_Code
+This module encodes and decodes EAN-13 series of barcodes.
+https://en.wikipedia.org/wiki/International_Article_Number
 """
+
 import zlib
 import struct
 import hashlib
 
+from barcodes_upc import PoorMans1DBarCodeEncoderDecoder_UPC_A
 
-class PoorMans1DBarCodeEncoderDecoder_UPC_A:
+
+class PoorMans1DBarCodeEncoderDecoder_EAN_13(PoorMans1DBarCodeEncoderDecoder_UPC_A):
     """
-    This class implements the UPC-A class of 2D barcode encoding and decoding via eps image.
+    This class implements EAN-13 standard 1D bar codes.
     """
-    PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
-    PNG_IEND = tuple(map(lambda x: int.from_bytes(
-        x, "big"), (b"\x49", b"\x45", b"\x4E", b"\x44")),)  # corresponds to b"IEND"
-    PNG_IHDR = tuple(map(lambda x: int.from_bytes(
-        x, "big"), (b"\x49", b"\x48", b"\x44", b"\x52")),)  # corresponds to b"IHDR"
-    PNG_IDAT = tuple(map(lambda x: int.from_bytes(
-        x, "big"), (b"\x49", b"\x44", b"\x41", b"\x54")),)  # corresponds to b"IDAT"
 
     def __init__(self,
                  width=3,
@@ -29,97 +25,26 @@ class PoorMans1DBarCodeEncoderDecoder_UPC_A:
                  left_odd_parities={
                      '0': '0001101', '1': '0011001', '2': '0010011', '3': '0111101', '4': '0100011',
                      '5': '0110001', '6': '0101111', '7': '0111011', '8': '0110111', '9': '0001011'},
+                 g_parities={
+                     '0': '0100111', '1': '0110011', '2': '0011011', '3': '0100001', '4': '0011101',
+                     '5': '0111001', '6': '0000101', '7': '0010001', '8': '0001111', '9': '0100101'},
                  right_even_parities={
                      '0': '1110010', '1': '1100110', '2': '1101100', '3': '1000010', '4': '1011100',
-                     '5': '1001110', '6': '1010000', '7': '1000100', '8': '1001000', '9': '1110100'}):
-        self.width = width
-        self.height = height
-        self.upper_quiet_zone = upper_quiet_zone
-        self.lower_quiet_zone = lower_quiet_zone
-        self.left_quiet_zone_width = left_quiet_zone_width
-        self.right_quiet_zone_width = right_quiet_zone_width
-        self.left_odd_parities = left_odd_parities
-        self.right_even_parities = right_even_parities
-
-    def create_ihdr(self,
-                    color_type: int = 0,
-                    bit_depth: int = 8,
-                    compression: int = 0,
-                    filter_method: int = 0,
-                    interlace_method: int = 0,
-                    **kwargs) -> bytes:
-        # Create the png header
-        # First pack the Length
-        head = struct.pack(
-            "!BBBB", *tuple(map(lambda x: int.from_bytes(x, "big"), (b"\x00", b"\x00", b"\x00", b"\x0D")),))
-        # Pack the type
-        block = struct.pack(
-            "!BBBB", *PoorMans1DBarCodeEncoderDecoder_UPC_A.PNG_IHDR)
-        # Now pack the Data
-        # Width calculations
-        total_width = kwargs.get("barcode_width") or self.width
-        # Header packing (The sequence must be honored)
-        # Width -> Height -> BitDepth -> ColorSpace -> Compression-> Filter_Method -> Interlacing method
-        block += struct.pack(
-            "!I", total_width)
-        block += struct.pack(
-            "!I", self.height)
-        block += struct.pack(
-            "!B", bit_depth)
-        block += struct.pack(
-            "!B", color_type)
-        block += struct.pack(
-            "!B", compression)
-        block += struct.pack(
-            "!B", filter_method)
-        block += struct.pack(
-            "!B", interlace_method)
-        crc_block = struct.pack("!I", zlib.crc32(block))
-        return head + block + crc_block
-
-    def create_iend(self) -> bytes:
-        # Create IEND
-        # First pack the Length
-        head = struct.pack(
-            "!BBBB", *tuple(map(lambda x: int.from_bytes(x, "big"), (b"\x00", b"\x00", b"\x00", b"\x00")),))
-        # Pack the type
-        block = struct.pack(
-            "!BBBB", *PoorMans1DBarCodeEncoderDecoder_UPC_A.PNG_IEND)
-        crc_block = struct.pack("!I", zlib.crc32(block))
-        return head + block + crc_block
-
-    def create_idat(self, data: list[list[bytes]]) -> bytes:
-        # Create IDAT chunk
-        block = struct.pack(
-            "!BBBB", *PoorMans1DBarCodeEncoderDecoder_UPC_A.PNG_IDAT)
-        # Go through data
-        raw = b""
-        for row in data:
-            raw += b"\0"  # See https://stackoverflow.com/questions/8554282/creating-a-png-file-in-python
-            for column in row:
-                # Ensure column is at max 255
-                value = struct.pack("!B", column)
-                raw += value
-        # compress
-        compressor = zlib.compressobj()
-        compressed = compressor.compress(raw)
-        compressed += compressor.flush()
-        # Now write length
-        length_block = struct.pack("!I", len(compressed))
-        block += compressed
-        crc_block = struct.pack("!I", zlib.crc32(block))
-        return length_block + block + crc_block
-
-    def create_png_file(self, data: list[bytes], **kwargs) -> bytes:
-        # Create the png signature first
-        png_returned = PoorMans1DBarCodeEncoderDecoder_UPC_A.PNG_SIGNATURE
-        # Create header (IHDR)
-        png_returned += self.create_ihdr(**kwargs)
-        # Create data (IDAT)
-        png_returned += self.create_idat(data)
-        # Create end block (IEND)
-        png_returned += self.create_iend()
-        return png_returned
+                     '5': '1001110', '6': '1010000', '7': '1000100', '8': '1001000', '9': '1110100'},
+                 structure_first_digit={
+                     '0': 'LLLLLLRRRRRR', '1': 'LLGLGGRRRRRR', '2': 'LLGGLGRRRRRR', '3': 'LLGGGLRRRRRR',
+                     '4': 'LGLLGGRRRRRR', '5': 'LGGLLGRRRRRR', '6': 'LGGLLGRRRRRR', '7': 'LGLGLGRRRRRR',
+                     '8': 'LGLGGLRRRRRR', '9': 'LGGLGLRRRRRR'}):
+        super().__init__(width=width,
+                         height=height,
+                         upper_quiet_zone=upper_quiet_zone,
+                         lower_quiet_zone=lower_quiet_zone,
+                         left_quiet_zone_width=left_quiet_zone_width,
+                         right_quiet_zone_width=right_quiet_zone_width,
+                         left_odd_parities=left_odd_parities,
+                         right_even_parities=right_even_parities)
+        self.g_parities = g_parities
+        self.structure_first_digit = structure_first_digit
 
     def encode(self, number_to_encode: str):
         """
@@ -144,6 +69,11 @@ class PoorMans1DBarCodeEncoderDecoder_UPC_A:
             quiet_zone_right
         }
         data = []
+        data_structure_needed = self.structure_first_digit[number_to_encode[0]]
+        sequence_to_use = [
+            self.left_odd_parities if x == "L" else self.g_parities if x == "G" else self.right_even_parities
+            for x in data_structure_needed
+        ]
         for i in range(self.upper_quiet_zone):
             data.append([255]*options_dict["barcode_width"])
         for _ in range(self.height-self.upper_quiet_zone-self.lower_quiet_zone):
@@ -157,22 +87,24 @@ class PoorMans1DBarCodeEncoderDecoder_UPC_A:
                 for _ in range(self.width):
                     row.append(int(digit))
             # Write left 6 digits
-            for digit in number_to_encode[:6:]:
-                for number in self.left_odd_parities[digit]:
+            for index_l, digit in enumerate(number_to_encode[1:7:]):
+                # print("left", index_l, sequence_to_use[index_l][digit])
+                for number in sequence_to_use[index_l][digit]:
                     for _ in range(self.width):
                         row.append(int(number))
             # Write center separator
             for digit in "01010":
                 for _ in range(self.width):
                     row.append(int(digit))
-            # Write right 5 digits
-            for digit in number_to_encode[6:11:]:
-                for number in self.right_even_parities[digit]:
+            # Write right 6 digits
+            for index_r, digit in enumerate(number_to_encode[7:12:], start=6):
+                # print("right", index_r, sequence_to_use[index_r][digit])
+                for number in sequence_to_use[index_r][digit]:
                     for _ in range(self.width):
                         row.append(int(number))
             # Write checksum
-            odd_sum = sum(map(lambda x: int(x)*3, number_to_encode[::2]))
-            even_sum = sum(map(lambda x: int(x), number_to_encode[1:-1:2]))
+            odd_sum = sum(map(lambda x: int(x)*3, number_to_encode[-1:1:-2]))
+            even_sum = sum(map(lambda x: int(x), number_to_encode[-2:1:-2]))
             total_sum = odd_sum + even_sum
             mod_10 = total_sum % 10
             inverse_mod_10 = (10 - mod_10) % 10
@@ -196,7 +128,7 @@ class PoorMans1DBarCodeEncoderDecoder_UPC_A:
             data.append([255]*options_dict["barcode_width"])
         # Create png file
         bytes_returned = self.create_png_file(data, **options_dict)
-        with open(f"Barcode_upc_a_{number_to_encode}-{inverse_mod_10}.png", "wb") as filehandle:
+        with open(f"Barcode_ean_13_{number_to_encode}-{inverse_mod_10}.png", "wb") as filehandle:
             filehandle.write(bytes_returned)
 
     def decode(self, png_image_to_read: bytes, verbose: bool = False) -> str:
@@ -306,6 +238,9 @@ class PoorMans1DBarCodeEncoderDecoder_UPC_A:
             numbers_read = []
             reverse_left_odd_parities = {v: k for k,
                                          v in self.left_odd_parities.items()}
+            revers_g_parities = {v: k for k,
+                                 v in self.g_parities.items()}
+            parities = ""
             for i in range(6):
                 read_key = ""
                 for j in range(7):
@@ -315,7 +250,23 @@ class PoorMans1DBarCodeEncoderDecoder_UPC_A:
                     else:
                         read_key += "0"
                     left_numbers = left_numbers[self.width:]
-                numbers_read.append(reverse_left_odd_parities.get(read_key))
+                if read_key in reverse_left_odd_parities:
+                    numbers_read.append(
+                        reverse_left_odd_parities.get(read_key))
+                    parities += "L"
+                elif read_key in revers_g_parities:
+                    numbers_read.append(revers_g_parities.get(read_key))
+                    parities += "G"
+                else:
+                    raise ValueError(
+                        "No matching parity as per expectation found")
+            # Now get the first digit based on parities pattern
+            reverse_structure_first_digit = {v[:6]: k for k,
+                                             v in self.structure_first_digit.items()}
+            first_digit = reverse_structure_first_digit.get(parities)
+            if not first_digit:
+                raise ValueError("Identification of first digit failed")
+            numbers_read.insert(0, first_digit)
             relevant_data = relevant_data[6*7*self.width:]
             # Get middle separator
             middle_separator = relevant_data[:5*self.width]
@@ -346,8 +297,8 @@ class PoorMans1DBarCodeEncoderDecoder_UPC_A:
             stored_checksum = reverse_right_even_parities.get(
                 "".join(list(map(str, checksum_digits))))
             numbers_read_ = list(map(int, numbers_read))
-            odd_sum = sum(map(lambda x: int(x)*3, numbers_read_[::2]))
-            even_sum = sum(map(lambda x: int(x), numbers_read_[1:-1:2]))
+            odd_sum = sum(map(lambda x: int(x)*3, numbers_read_[-1:1:-2]))
+            even_sum = sum(map(lambda x: int(x), numbers_read_[-2:1:-2]))
             total_sum = odd_sum + even_sum
             mod_10 = total_sum % 10
             computed_checksum = (10 - mod_10) % 10
@@ -373,8 +324,8 @@ class PoorMans1DBarCodeEncoderDecoder_UPC_A:
 
 if __name__ == "__main__":
 
-    my_1_d_bar_obj = PoorMans1DBarCodeEncoderDecoder_UPC_A()
-    my_1_d_bar_obj.encode("13600029145")
+    my_1_d_bar_obj = PoorMans1DBarCodeEncoderDecoder_EAN_13()
+    my_1_d_bar_obj.encode("136000291452")
     # Verify the generated image by uploading in an online tool like below
     # https://orcascan.com/tools/gs1-barcode-decoder?barcode=0036000291452
-    my_1_d_bar_obj.decode("Barcode_upc_a_13600029145-9.png", True)
+    my_1_d_bar_obj.decode("Barcode_ean_13_136000291452-1.png", True)
